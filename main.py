@@ -2,11 +2,18 @@ import pandas as pd
 import json
 
 def init():
+    SPENDING_COLUMN_NAME = 'Spending amount'
+    BANK_CURRENCY = 'UAH'
+    MAIN_CURRENCY = 'USD'
     data_init('en', '11_gen.csv')
     data_cleaning()
-    ensuring_data_type([0, 1, 2, 5])
-    unite_all_currencies('GBP')
-    categorisation([True, True, True, False])
+    conversion_rates_init(BANK_CURRENCY)
+    unite_all_currencies(MAIN_CURRENCY, BANK_CURRENCY, SPENDING_COLUMN_NAME)
+    categorisation([True, True, True, False], SPENDING_COLUMN_NAME)
+    cashback_calculation(MAIN_CURRENCY)
+    commission_calculation(MAIN_CURRENCY)
+    manage_columns([], SPENDING_COLUMN_NAME)
+    print(commission_calculation(MAIN_CURRENCY))
 
 
 def data_init(LANG: str, DATA_FILE_NAME: str) -> None:
@@ -31,7 +38,6 @@ def data_init(LANG: str, DATA_FILE_NAME: str) -> None:
         raise KeyError(f'File {MCC_FILE} cannot be decoded')
     
 
-
 def ensuring_data_type(NOT_INT_INDEXES: list[int]) -> None:
     for i in range(data_set.shape[1]):
         if i not in NOT_INT_INDEXES:
@@ -40,6 +46,15 @@ def ensuring_data_type(NOT_INT_INDEXES: list[int]) -> None:
     
 def data_cleaning():
     dates_cleaning(0)
+    ensuring_data_type([0, 1, 2, 5])
+
+def manage_columns(dropped_columns: list[int], SPENDING_COLUMN_NAME) -> object:
+    data_set.drop(data_set.columns[dropped_columns], axis=1, inplace=True)
+    spending_column = data_set.pop(SPENDING_COLUMN_NAME)
+    data_set.insert(2, SPENDING_COLUMN_NAME,spending_column)
+
+    return data_set
+
 
 def dates_cleaning(col_number: int ) -> object:
     # It is to remove precise timing of the transaction (date only) -> easy to read for user
@@ -49,9 +64,9 @@ def dates_cleaning(col_number: int ) -> object:
     return data_set
     
 
-def categorisation(data_display: list[bool]) -> object:
+def categorisation(data_display: list[bool], SPENDING_COLUMN_NAME) -> object:
     MCC_COLUMN_NAME = data_set.columns[2]
-    AMOUNT_COLUMN_NAME = data_set.columns[4]
+    AMOUNT_COLUMN_NAME = SPENDING_COLUMN_NAME
 
     agg_data = data_set.groupby(MCC_COLUMN_NAME)[AMOUNT_COLUMN_NAME].sum().reset_index()
 
@@ -74,25 +89,58 @@ def categorisation(data_display: list[bool]) -> object:
         if not item:
             agg_data.drop(agg_data.columns[i], axis=1, inplace=True)
 
-    print(agg_data)
+    return agg_data
 
+def conversion_rates_init(BANK_CURRENCY) -> dict:
+    currencies_set = data_set.iloc[:, 5].unique().tolist()
+    global conversion_rates
+    conversion_rates = {}
+    for currency in currencies_set:
+        if currency == BANK_CURRENCY:
+            conversion_rates[currency] = 1
+        else:
+            rows_with_currency = data_set[data_set.iloc[:, 5] == currency]
+            conversion_rates[currency] = rows_with_currency.iloc[:, 6].mean()
 
-def unite_all_currencies(main_currency):
-    currencies_set = data_set.iloc[:, 5].unique()
+    return conversion_rates
 
-    if main_currency not in currencies_set:
-        print(f"Error: {main_currency} not found in the dataset.")
-        return
-
-    EXCHANGE_RATE_MEAN = data_set.loc[data_set.iloc[:, 5] == main_currency, data_set.columns[6]].mean()
+def unite_all_currencies(MAIN_CURRENCY: str, BANK_CURRENCY: str, SPENDING_COLUMN_NAME: str = 'Spending amount') -> object:
+    if BANK_CURRENCY == MAIN_CURRENCY:
+        data_set.loc[:, SPENDING_COLUMN_NAME] = data_set.iloc[:, 3]
+        return data_set
     
-    for item in currencies_set:
-        if item == main_currency:
-            continue
-        conversion_rate = data_set.loc[data_set.iloc[:, 5] == item, data_set.columns[6]].mean()
-        data_set.loc[data_set.iloc[:, 5] == item, data_set.columns[4]] *= conversion_rate / EXCHANGE_RATE_MEAN
+    currencies_set = data_set.iloc[:, 5].unique().tolist()
 
-    data_set.iloc[:, 5] = main_currency
 
+    if MAIN_CURRENCY not in currencies_set or BANK_CURRENCY not in currencies_set:
+        raise ValueError('Currency not found in the dataset')
+    
+    currencies_set.remove(MAIN_CURRENCY)
+    currencies_set.remove(BANK_CURRENCY)
+    currencies_set.insert(0, BANK_CURRENCY)
+    currencies_set.insert(1, MAIN_CURRENCY)
+
+    for currency in currencies_set:
+        currency_rows = data_set[data_set.iloc[:, 5] == currency]
+
+        data_set.loc[currency_rows.index, SPENDING_COLUMN_NAME] = (
+            currency_rows.iloc[:, 3] / conversion_rates[MAIN_CURRENCY]
+        )
+    
+    data_set.loc[:, SPENDING_COLUMN_NAME] = data_set.loc[:, SPENDING_COLUMN_NAME].round(2)
+    data_set.iloc[:, 5] = MAIN_CURRENCY
+
+    return data_set
+
+def cashback_calculation(MAIN_CURRENCY):
+    cashback_sum = data_set.iloc[:, 8].sum()
+    cashback_sum = (cashback_sum / conversion_rates[MAIN_CURRENCY]).round(2)
+    return f'{cashback_sum} {MAIN_CURRENCY}'
+
+def commission_calculation(MAIN_CURRENCY):
+    commission_sum = data_set.iloc[:, 8].sum()
+    commission_sum = (commission_sum / conversion_rates[MAIN_CURRENCY]).round(2)
+    return f'{commission_sum} {MAIN_CURRENCY}'
+        
 # initialisation
 init()
