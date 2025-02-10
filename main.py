@@ -9,11 +9,8 @@ def init():
     data_cleaning()
     conversion_rates_init(BANK_CURRENCY)
     unite_all_currencies(MAIN_CURRENCY, BANK_CURRENCY, SPENDING_COLUMN_NAME)
-    categorisation([True, True, True, False], SPENDING_COLUMN_NAME)
-    cashback_calculation(MAIN_CURRENCY)
-    commission_calculation(MAIN_CURRENCY)
+    categorisation([True, True, True, False], SPENDING_COLUMN_NAME, MAIN_CURRENCY)
     manage_columns([], SPENDING_COLUMN_NAME)
-    print(commission_calculation(MAIN_CURRENCY))
 
 
 def data_init(LANG: str, DATA_FILE_NAME: str) -> None:
@@ -53,18 +50,13 @@ def manage_columns(dropped_columns: list[int], SPENDING_COLUMN_NAME) -> object:
     spending_column = data_set.pop(SPENDING_COLUMN_NAME)
     data_set.insert(2, SPENDING_COLUMN_NAME,spending_column)
 
-    return data_set
-
 
 def dates_cleaning(col_number: int ) -> object:
     # It is to remove precise timing of the transaction (date only) -> easy to read for user
     data_col = data_set.iloc[:, col_number]
     data_set.iloc[:, col_number] = data_col.str.split(' ').str[0]
 
-    return data_set
-    
-
-def categorisation(data_display: list[bool], SPENDING_COLUMN_NAME) -> object:
+def categorisation(data_display: list[bool], SPENDING_COLUMN_NAME, MAIN_CURRENCY) -> object:    
     MCC_COLUMN_NAME = data_set.columns[2]
     AMOUNT_COLUMN_NAME = SPENDING_COLUMN_NAME
 
@@ -89,7 +81,13 @@ def categorisation(data_display: list[bool], SPENDING_COLUMN_NAME) -> object:
         if not item:
             agg_data.drop(agg_data.columns[i], axis=1, inplace=True)
 
-    return agg_data
+
+    cashback = cashback_calculation(MAIN_CURRENCY)
+    commission = commission_calculation(MAIN_CURRENCY)
+    agg_data.loc[len(agg_data)] = [9700, cashback, 'Cashback']
+    agg_data.loc[len(agg_data)] = [0000, commission * -1, 'Commission']
+
+    print(agg_data)
 
 def conversion_rates_init(BANK_CURRENCY) -> dict:
     currencies_set = data_set.iloc[:, 5].unique().tolist()
@@ -135,12 +133,12 @@ def unite_all_currencies(MAIN_CURRENCY: str, BANK_CURRENCY: str, SPENDING_COLUMN
 def cashback_calculation(MAIN_CURRENCY):
     cashback_sum = data_set.iloc[:, 8].sum()
     cashback_sum = (cashback_sum / conversion_rates[MAIN_CURRENCY]).round(2)
-    return f'{cashback_sum} {MAIN_CURRENCY}'
+    return cashback_sum
 
 def commission_calculation(MAIN_CURRENCY):
     commission_sum = data_set.iloc[:, 8].sum()
     commission_sum = (commission_sum / conversion_rates[MAIN_CURRENCY]).round(2)
-    return f'{commission_sum} {MAIN_CURRENCY}'
+    return commission_sum
         
 # initialisation
 init()
